@@ -11,33 +11,29 @@ on:
         type: string
         description: "Exclude Xcode version list (JSON)"
         default: "[{\"xcode_version\": \"\"}]"
-      macos_versions:
+      macos_runners:
         type: string
-        description: "macOS version list (JSON)"
-        default: "[\"sequoia\"]"
-      macos_archs:
+        description: "macOS runners list (JSON)"
+        default: "[\"macos-latest\"]"
+      linux_runners:
         type: string
-        description: "macOS arch list (JSON)"
-        default: "[\"ARM64\"]"
-      linux_swift_versions:
+        description: "Linux runners list (JSON)"
+        default: "[\"ubuntu-latest\"]"
+      windows_runners:
         type: string
-        description: "Include Linux Swift version list (JSON)"
+        description: "Windows runners list (JSON)"
+        default: "[\"windows-latest\", \"windows-2022\"]"
+      android_runners:
+        type: string
+        description: "Android runners list (JSON)"
+        default: "[\"macos-13\"]"
+      swift_versions:
+        type: string
+        description: "Include Swift version list (JSON)"
         default: "[ \"5.9\", \"5.10\", \"6.0\", \"6.1\", \"nightly-main\", \"nightly-6.1\"]"
-      linux_exclude_swift_versions:
+      exclude_swift_versions:
         type: string
-        description: "Exclude Linux Swift version list (JSON)"
-        default: "[{\"swift_version\": \"\"}]"
-      linux_os_versions:
-        type: string
-        description: "Linux OS version list (JSON)"
-        default: "[\"jammy\"]"
-      windows_swift_versions:
-        type: string
-        description: "Include Windows Swift version list (JSON)"
-        default: "[\"5.9\", \"6.0\", \"6.1\", \"nightly\", \"nightly-6.1\"]"
-      windows_exclude_swift_versions:
-        type: string
-        description: "Exclude Windows Swift version list (JSON)"
+        description: "Exclude Swift version list (JSON)"
         default: "[{\"swift_version\": \"\"}]"
       swift_flags:
         type: string
@@ -47,32 +43,13 @@ on:
         type: string
         description: "Swift flags for nightly version"
         default: ""
-      linux_pre_build_command:
+      pre_build_command:
         type: string
         description: "Linux command to execute before building the Swift package"
         default: ""
-      macos_pre_build_command:
-        type: string
-        description: "macOS command to execute before building the Swift package"
-        default: ""
-      macos_build_command:
+      build_command:
         type: string
         description: "macOS command to build and test the package"
-        default: "xcrun swift test"
-      linux_build_command:
-        type: string
-        description: "Linux command to build and test the package"
-        default: "swift test"
-      windows_pre_build_command:
-        type: string
-        description: "Windows Command Prompt command to execute before building the Swift package"
-        default: ""
-      windows_build_command:
-        type: string
-        description: |
-          Windows Command Prompt command to build and test the package.
-          Note that Powershell does not automatically exit if a subcommand fails. The Invoke-Program utility is available to propagate non-zero exit codes.
-          It is strongly encouraged to run all command using `Invoke-Program` unless you want to continue on error eg. `Invoke-Program git apply patch.diff` instead of `git apply patch.diff`.
         default: "swift test"
       macos_env_vars:
         description: "Newline separated list of environment variables"
@@ -83,18 +60,25 @@ on:
       windows_env_vars:
         description: "Newline separated list of environment variables"
         type: string
+      android_env_vars:
+        description: "Newline separated list of environment variables"
+        type: string
+      enable_macos_checks:
+        type: boolean
+        description: "Boolean to enable macOS testing. Defaults to true"
+        default: true
       enable_linux_checks:
         type: boolean
         description: "Boolean to enable linux testing. Defaults to true"
         default: true
-      enable_macos_checks:
-        type: boolean
-        description: "Boolean to enable macOS testing. Defaults to false"
-        default: false
       enable_windows_checks:
         type: boolean
         description: "Boolean to enable windows testing. Defaults to true"
         default: true
+      enable_android_checks:
+        type: boolean
+        description: "Boolean to enable android testing. Defaults to false"
+        default: false
       enable_windows_docker:
         type: boolean
         description: "Boolean to enable running build in windows docker container. Defaults to true"
@@ -106,15 +90,14 @@ on:
 
 jobs:
   macos-build:
-    name: macOS (Xcode ${{ matrix.xcode_version }} - ${{ matrix.os_version }} - ${{ matrix.arch }})
+    name: macOS (Xcode ${{ matrix.xcode_version }} - ${{ matrix.macos_runners }})
     if: ${{ inputs.enable_macos_checks }}
-    runs-on: [self-hosted, macos, "${{ matrix.os_version }}", "${{ matrix.arch }}"]
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         xcode_version: ${{ fromJson(inputs.macos_xcode_versions) }}
-        os_version: ${{ fromJson(inputs.macos_versions) }}
-        arch: ${{ fromJson(inputs.macos_archs) }}
+        os: ${{ fromJson(inputs.macos_runners) }}
         exclude:
           - ${{ fromJson(inputs.macos_exclude_xcode_versions) }}
     steps:
@@ -141,18 +124,18 @@ jobs:
         run: ${{ inputs.macos_build_command }}
 
   linux-build:
-    name: Linux (${{ matrix.swift_version }} - ${{ matrix.os_version }})
+    name: Linux (${{ matrix.swift_version }} - ${{ matrix.os }})
     if: ${{ inputs.enable_linux_checks }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        swift_version: ${{ fromJson(inputs.linux_swift_versions) }}
-        os_version: ${{ fromJson(inputs.linux_os_versions) }}
+        swift_version: ${{ fromJson(inputs.swift_versions) }}
+        os: ${{ fromJson(inputs.linux_runners) }}
         exclude:
-          - ${{ fromJson(inputs.linux_exclude_swift_versions) }}
+          - ${{ fromJson(inputs.exclude_swift_versions) }}
     container:
-      image: ${{ (contains(matrix.swift_version, 'nightly') && 'swiftlang/swift') || 'swift' }}:${{ matrix.swift_version }}-${{ matrix.os_version }}
+      image: ${{ (contains(matrix.swift_version, 'nightly') && 'swiftlang/swift') || 'swift' }}:${{ matrix.swift_version }}-${{ matrix.os }}
     steps:
       - name: Swift version
         run: swift --version
@@ -170,18 +153,53 @@ jobs:
               printf "%s\n" $i >> $GITHUB_ENV
             done
       - name: Pre-build
-        run: ${{ inputs.linux_pre_build_command }}
+        run: ${{ inputs.pre_build_command }}
       - name: Build / Test
-        run: ${{ inputs.linux_build_command }} ${{ (contains(matrix.swift_version, 'nightly') && inputs.swift_nightly_flags) || inputs.swift_flags }}
+        run: ${{ inputs.build_command }} ${{ (contains(matrix.swift_version, 'nightly') && inputs.swift_nightly_flags) || inputs.swift_flags }}
+
+  android-build:
+    name: Linux (${{ matrix.swift_version }} - ${{ matrix.os }})
+    if: ${{ inputs.enable_android_checks }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift_version: ${{ fromJson(inputs.swift_versions) }}
+        os: ${{ fromJson(inputs.android_runners) }}
+        exclude:
+          - ${{ fromJson(inputs.exclude_swift_versions) }}
+    container:
+      image: ${{ (contains(matrix.swift_version, 'nightly') && 'swiftlang/swift') || 'swift' }}:${{ matrix.swift_version }}-${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Provide token
+        if: ${{ inputs.needs_token }}
+        run: |
+            echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+      - name: Set environment variables
+        if: ${{ inputs.android_env_vars }}
+        run: |
+            for i in "${{ inputs.android_env_vars }}"
+            do
+              printf "%s\n" $i >> $GITHUB_ENV
+            done
+      - name: Pre-build
+        run: ${{ inputs.pre_build_command }}
+      - name: Build / Test
+        uses: skiptools/swift-android-action@v2
+        with:
+          swift-version: ${{ matrix.swift_version }}
 
   windows-build:
-    name: Windows (${{ matrix.swift_version }} - ${{ inputs.enable_windows_docker && contains(matrix.swift_version, 'nightly') && 'windows-2019' || 'windows-2022' }})
+    name: Windows (${{ matrix.swift_version }} - ${{ inputs.enable_windows_docker && contains(matrix.swift_version, 'nightly') && 'windows-2019' || matrix.os }})
     if: ${{ inputs.enable_windows_checks }}
-    runs-on: ${{ inputs.enable_windows_docker && contains(matrix.swift_version, 'nightly') && 'windows-2019' || 'windows-2022' }}
+    runs-on: ${{ inputs.enable_windows_docker && contains(matrix.swift_version, 'nightly') && 'windows-2019' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         swift_version: ${{ fromJson(inputs.windows_swift_versions) }}
+        os: ${{ fromJson(inputs.windows_runners) }}
         exclude:
           - ${{ fromJson(inputs.windows_exclude_swift_versions) }}
     steps:
